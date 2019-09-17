@@ -1,20 +1,19 @@
-= Overview
+= Building Cloud Native Java Applications with Tekton - Part I
+
 :coderay-linenums-mode: inline
 :source-highlighter: coderay
 
 Historically Java was able to handle the biggest enterprise problem(s) with its Write once,run anywhere(WORA) paradigm. With Cloud Native Applications grown to popularity, things like running applications as linux containers, serverless taking centre stage -- Java was pushed back by languages like golang, node.js as the forerunner to build Cloud Native Applications as they are smaller, quicker and arguably more nimble.
 
-When analysing what could be the possible reasons why developers were reluctant in building Cloud Native Java applications ? 
+When analyzing what could be the possible reasons why developers were reluctant in building Kubernetes(Cloud) Native Java applications, I ended up the with the following possible reasons:
 
-In my personal opinion I thought, possible reasons could be:
-
-* Java applications are slow to boot
-* What is the best way to build Java application container (a container here is the linux contatiner that can run Java application) ?
-* The last point which is the subject of this article "pipelines" -- with traditional Java Enterprise world got used to pipelines via platform like Jenkins, Bamboo etc., which made them think what is the best way to do it for Cloud Native Java applications --
+1. Java applications are slow to boot
+2. What is the best way to build Java application container (a container here is the linux container that can run Java application) ?
+3. The last point which is the subject of this article "pipelines" -- with traditional Java Enterprise world got used to pipelines via platform like Jenkins, Bamboo etc., which made them think what is the best way to do it for Cloud Native Java applications --
 
 I am not going to over on first two points, as they are super easy by just using https://quarkus.io[Quarkus] and enterprise https://kubernetes.io[Kubernetes] distribution like https://openshift.com[OpenShift].
 
-So what about pipelines ? But first question on your mind is "Why cant I use the existing tools ?"  Yes ofcourse you can, but thinking about factors such as running it as containers, scale on demand and lastly fitting into the DevOps cluture. 
+So what about pipelines ? But first question that comes to your mind is "Why cant I use the existing tools ?" Yes of course you can, but thinking about factors such as running it as containers, scale on demand and lastly fitting into the DevOps culture. 
 
 The simple solution to these issues is using https://tekton.dev[Tekton]. Tekton was built keeping in mind:
 
@@ -33,14 +32,13 @@ The simple solution to these issues is using https://tekton.dev[Tekton]. Tekton 
 
 === Demo Sources
 
-For demostrating the pipelines we will use a simple Java HelloWorld application built using https://quarkus.io[Quarkus], 
-
-Clone the demo sources locally
+For demonstrating the pipelines we will use a simple Java HelloWorld application built using https://quarkus.io[Quarkus], clone the demo sources locally:
 
 [source,bash,linenums]
 ----
 git clone https://https://github.com/kameshsampath/pipeline-helloworld && \
-cd pipeline-helloworld
+cd pipeline-helloworld && \
+export DEMO_HOME=`pwd`
 ----
 
 NOTE: For easier reference we will call the cloned git repository home as `$DEMO_HOME`
@@ -95,7 +93,7 @@ spec:
 ----
 <1> Name of the pipeline resource, which will used to refer them in tasks and pipelines
 <2> The type of the pipeline resource, in this case "image"
-<3> The parameters for the resource. In this case contianer image url. This will be url where the container image will be built and pushed as part of the task and pipeline
+<3> The parameters for the resource. In this case container image url. This will be url where the container image will be built and pushed as part of the task and pipeline
 
 There are few pipeline resource types that are defined during the install of the Tekton pipelines. Check https://github.com/tektoncd/pipeline/blob/master/docs/resources.md[here] for more details on available pipeline resources.
 
@@ -209,7 +207,7 @@ spec:
     emptyDir: {}      
 ----
 
-<1> Name of the task, which will be used to refer to this task in other places such as TaskRun, pipeline runs
+<1> Name of the task, which will be used to refer to this task in other places such as task run, pipeline runs
 <2> Each task has an optional input
 <3> Input can have resources, typically the sources to build from. The task here defines a source of type to `Git` i.e. a GitHub source repository to clone sources
 <4> Inputs can also have zero or more parameters that can be used in task steps
@@ -227,9 +225,9 @@ The task parameters could be referred/interpolated within the step specificaiton
 
 === TaskRuns
 
-https://github.com/tektoncd/pipeline/blob/master/docs/taskruns.md[TaskRun] allows to run an individual task. The TaskRun allows us to pass the inputs(sources,parameters) and ouput references to the task. The references are usually defined via pipeline resources.
+https://github.com/tektoncd/pipeline/blob/master/docs/taskruns.md[TaskRun] allows to run an individual task. The task run allows us to pass the inputs(sources,parameters) and ouput references to the task. The references are usually defined via pipeline resources.
 
-While defined the tasks we defined an  https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task.yaml#L8[input], https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task.yaml#L25[output] and bunch of https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task.yaml#L11-L22[parameters]. The names of these will act as an handle for us to pass the inputs/ouputs to the Task from TaskRun.
+While defined the tasks we defined an  https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task.yaml#L8[input], https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task.yaml#L25[output] and bunch of https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task.yaml#L11-L22[parameters]. The names of these will act as an handle for us to pass the inputs/ouputs to the task from task run.
 
 Lets see how we do it in the demo,
 
@@ -262,20 +260,23 @@ spec:
       resourceRef: 
         name: helloworld-image
 ----
-<1> Since tasks can be run many times, its ideal to have unquie names for each run. In his case each task run will have a name `build-app-<uuid>`
-<2> `taskRef` is used to define the task that this TaskRun will execute. In this case we use the task we defined earlier `build-app`
-<3> Using the inputs -> resources, we link the Task input resource named `source` with pipeline resource named `git-source`
-<4> Set the Task parameter named `contextDir` 
-<5> Using the outputs -> resources, we link the Task output resource named `builtImage` with pipeline resource named `helloworld-image`
+<1> Since tasks can be run many times, its ideal to have unique names for each run. In his case each task run will have a name `build-app-<uuid>`
+<2> `taskRef` is used to define the task that this task run will execute. In this case we use the task we defined earlier `build-app`
+<3> Using the inputs -> resources, we link the task input resource named `source` with pipeline resource named `git-source`
+<4> Set the task parameter named `contextDir` 
+<5> Using the outputs -> resources, we link the task output resource named `builtImage` with pipeline resource named `helloworld-image`
 
 == Deploy Demo
 
 Having defined all the required resources that is needed to build the Java application, let us build and deploy the application on to Kubernetes. Before we go further its assumed that <<install,pipelines installation>> was done successfully.
 
+image::task_run_overview.png[]
+
 === Create a Service Account with cluster-admin privileges
 
 [source,bash,linenums]
 ----
+cd $DEMO_HOME &&\
 kubectl create sa pipeline && \
 kubectl create clusterrolebinding pipeline-cluster-admin-binding --clusterrole=cluster-admin --serviceaccount=default:pipeline
 ----
@@ -360,7 +361,7 @@ When a taskrun is failed you can use the command `kubectl describe taskrun <task
 
 === Test built application
 
-Once the TaskRun is successful we can do a quick test deploying the application to Kubernetes,
+Once the task run is successful we can do a quick test deploying the application to Kubernetes,
 
 [source,bash,linenums]
 ----

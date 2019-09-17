@@ -1,0 +1,399 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?asciidoc-toc?>
+<?asciidoc-numbered?>
+<article xmlns="http://docbook.org/ns/docbook" xmlns:xl="http://www.w3.org/1999/xlink" version="5.0" xml:lang="en">
+<info>
+<title>Building Cloud Native Java Applications with Tekton - Part I</title>
+<date>2019-09-17</date>
+</info>
+<simpara>Historically Java was able to handle the biggest enterprise problem(s) with its Write once,run anywhere(WORA) paradigm. With Cloud Native Applications grown to popularity, things like running applications as linux containers, serverless taking centre stage&#8201;&#8212;&#8201;Java was pushed back by languages like golang, node.js as the forerunner to build Cloud Native Applications as they are smaller, quicker and arguably more nimble.</simpara>
+<simpara>When analyzing what could be the possible reasons why developers were reluctant in building Kubernetes(Cloud) Native Java applications, I ended up the with the following possible reasons:</simpara>
+<orderedlist numeration="arabic">
+<listitem>
+<simpara>Java applications are slow to boot</simpara>
+</listitem>
+<listitem>
+<simpara>What is the best way to build Java application container (a container here is the linux container that can run Java application) ?</simpara>
+</listitem>
+<listitem>
+<simpara>The last point which is the subject of this article "pipelines"&#8201;&#8212;&#8201;with traditional Java Enterprise world got used to pipelines via platform like Jenkins, Bamboo etc., which made them think what is the best way to do it for Cloud Native Java applications&#8201;&#8212;&#8201;</simpara>
+</listitem>
+</orderedlist>
+<simpara>I am not going to over on first two points, as they are super easy by just using <link xl:href="https://quarkus.io">Quarkus</link> and enterprise <link xl:href="https://kubernetes.io">Kubernetes</link> distribution like <link xl:href="https://openshift.com">OpenShift</link>.</simpara>
+<simpara>So what about pipelines ? But first question that comes to your mind is "Why cant I use the existing tools ?" Yes of course you can, but thinking about factors such as running it as containers, scale on demand and lastly fitting into the DevOps culture.</simpara>
+<simpara>The simple solution to these issues is using <link xl:href="https://tekton.dev">Tekton</link>. Tekton was built keeping in mind:</simpara>
+<itemizedlist>
+<listitem>
+<simpara>Containers - Built for container apps and runs on Kubernetes</simpara>
+</listitem>
+<listitem>
+<simpara>Serverless - Runs serverless with no CI/CD engine to manage and maintain</simpara>
+</listitem>
+<listitem>
+<simpara>DevOps - Designed with microserviecs and distributed teams in mind</simpara>
+</listitem>
+</itemizedlist>
+<section xml:id="install">
+<title>Install Tekton Pipelines</title>
+<section xml:id="_pre_req">
+<title>Pre-req</title>
+<itemizedlist>
+<listitem>
+<simpara>A <link xl:href="https://kubernetes.io/docs/setup/learning-environment/minikube/">Kubernetes cluster</link> or try.openshift.com[OpenShift] with <link xl:href="https://tekton.dev">Tekton</link> installed</simpara>
+</listitem>
+<listitem>
+<simpara>If minikube have the internal container registry deployed; check <link xl:href="https://github.com/kameshsampath/minikube-helpers/tree/master/registry">Registry Helpers</link></simpara>
+</listitem>
+<listitem>
+<simpara>Download and add <link xl:href="https://github.com/tektoncd/cli">Tekton CLI</link> to the path</simpara>
+</listitem>
+</itemizedlist>
+</section>
+<section xml:id="_demo_sources">
+<title>Demo Sources</title>
+<simpara>For demonstrating the pipelines we will use a simple Java HelloWorld application built using <link xl:href="https://quarkus.io">Quarkus</link>, clone the demo sources locally:</simpara>
+<programlisting language="bash" linenumbering="numbered">git clone https://https://github.com/kameshsampath/pipeline-helloworld &amp;&amp; \
+cd pipeline-helloworld &amp;&amp; \
+export DEMO_HOME=`pwd`</programlisting>
+<note>
+<simpara>For easier reference we will call the cloned git repository home as <literal>$DEMO_HOME</literal></simpara>
+</note>
+</section>
+</section>
+<section xml:id="_tekton_concepts">
+<title>Tekton Concepts</title>
+<simpara>Before we start deploying our demo, it will be nice to know about the Kubernetes resources or objects that will defined using Tekton.</simpara>
+<simpara>Everything in Tekton are defined using <link xl:href="https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/Kubernetes">Custom Resources(CRD)</link>. With custom resources Tekton can define anything related to pipelines in Kubernetes Native way a.k.a Cloud Native way.</simpara>
+<section xml:id="_pipeline_resources">
+<title>Pipeline resources</title>
+<simpara>Defines referable resources such as source code repo, container images e.g. GitHub repository, container image url.</simpara>
+<simpara>Defining the pipeline resources improves <emphasis role="strong">reusability</emphasis> by  making these resource parameters not local to task and pipelines.</simpara>
+<simpara>Lets explore pipeline resources defined as part of this <link xl:href="https://github.com/kameshsampath/pipeline-helloworld">demo</link></simpara>
+<formalpara>
+<title><link xl:href="https://github.com/kameshsampath/pipeline-helloworld/blob/master/build-resources.yaml#L1-L11">GitHub source repo pipeline resource</link></title>
+<para>
+<programlisting language="yaml" linenumbering="numbered">apiVersion: tekton.dev/v1alpha1
+kind: PipelineResource
+metadata:
+  name: git-source <co xml:id="CO1-1"/>
+spec:
+  type: git <co xml:id="CO1-2"/>
+  params: <co xml:id="CO1-3"/>
+  - name: url
+    value: https://github.com/kameshsampath/pipeline-helloworld
+  - name: revision
+    value: master</programlisting>
+</para>
+</formalpara>
+<calloutlist>
+<callout arearefs="CO1-1">
+<para>Name of the pipeline resource, which will used to refer them in tasks and pipelines</para>
+</callout>
+<callout arearefs="CO1-2">
+<para>The type of the pipeline resource, in this case "git"</para>
+</callout>
+<callout arearefs="CO1-3">
+<para>The parameters for the resource. In this case url to the GitHub repository and the revision.</para>
+</callout>
+</calloutlist>
+<formalpara>
+<title><link xl:href="https://github.com/kameshsampath/pipeline-helloworld/blob/master/build-resources.yaml#L13-L21">Container image pipeline resource</link></title>
+<para>
+<programlisting language="yaml" linenumbering="numbered">apiVersion: tekton.dev/v1alpha1
+kind: PipelineResource
+metadata:
+  name: helloworld-image <co xml:id="CO2-1"/>
+spec:
+  type: image <co xml:id="CO2-2"/>
+  params:
+  - name: url
+    value: "dev.local/example/helloworld" <co xml:id="CO2-3"/></programlisting>
+</para>
+</formalpara>
+<calloutlist>
+<callout arearefs="CO2-1">
+<para>Name of the pipeline resource, which will used to refer them in tasks and pipelines</para>
+</callout>
+<callout arearefs="CO2-2">
+<para>The type of the pipeline resource, in this case "image"</para>
+</callout>
+<callout arearefs="CO2-3">
+<para>The parameters for the resource. In this case container image url. This will be url where the container image will be built and pushed as part of the task and pipeline</para>
+</callout>
+</calloutlist>
+<simpara>There are few pipeline resource types that are defined during the install of the Tekton pipelines. Check <link xl:href="https://github.com/tektoncd/pipeline/blob/master/docs/resources.md">here</link> for more details on available pipeline resources.</simpara>
+</section>
+<section xml:id="_tasks">
+<title>Tasks</title>
+<simpara>A <link xl:href="https://github.com/tektoncd/pipeline/blob/master/docs/tasks.md">Task</link> is the very fundamental unit of Tekton. Task consists of multiple atomic units called <emphasis role="strong">step</emphasis>.</simpara>
+<simpara>Step runs the command inside the container and it identical to the Kubernetes <link xl:href="https://kubernetes.io/docs/concepts/workloads/pods/pod/">pod</link>. A task can have multiple steps, they get executed in the sequential order like how they were defined.</simpara>
+<simpara>Lets define the steps for our task to build a Java application container image from sources:</simpara>
+<orderedlist numeration="arabic">
+<listitem>
+<simpara>Build the Java application using build tools like Apache Maven or Gradle</simpara>
+</listitem>
+<listitem>
+<simpara>Use the built artifacts to make the Java application container image</simpara>
+</listitem>
+<listitem>
+<simpara>Push the built Java application container image to internal registry or external registry to allow platform like Kubernetes or OpenShift to consume them</simpara>
+</listitem>
+</orderedlist>
+<simpara>Lets explore the demo Java build task,</simpara>
+<formalpara>
+<title><link xl:href="https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task.yaml">Java build app task</link></title>
+<para>
+<programlisting language="yaml" linenumbering="numbered">apiVersion: tekton.dev/v1alpha1
+kind: Task
+metadata:
+  name: build-app <co xml:id="CO3-1"/>
+spec:
+  inputs: <co xml:id="CO3-2"/>
+   resources: <co xml:id="CO3-3"/>
+    - name: source
+      type: git
+   params: <co xml:id="CO3-4"/>
+   - name: contextDir
+     description: Parameter Description
+     default: .
+   - name: mavenMirrorUrl
+     description: Parameter Description
+     default: http://repo1.maven.apache.org/maven2
+   - name: destinationImage
+     description: Parameter Description
+     default: "${outputs.resources.builtImage.url}"
+   - name: dockerFile
+     description: Parameter Description
+     default: src/main/docker/Dockerfile.jvm
+  outputs: <co xml:id="CO3-5"/>
+   resources:
+    - name: builtImage
+      type: image
+  steps: <co xml:id="CO3-6"/>
+   - name: build-sources
+     image: quay.io/rhdevelopers/quarkus-java-builder:graal-19.1.1 <co xml:id="CO3-7"/>
+     workingDir: "/workspace/source/${inputs.params.contextDir}"
+     args:
+      - '/usr/local/bin/maven-run.sh'
+     env:
+     - name: MAVEN_MIRROR_URL
+       value: "${inputs.params.mavenMirrorUrl}"
+     - name: MAVEN_CMD_ARGS
+       value: "-DskipTests clean install"
+     - name: WORK_DIR
+       value: "/workspace/source/${inputs.params.contextDir}"
+     resources:
+       limits:
+         cpu: 4
+         memory: 4Gi
+       requests:
+         cpu: 2
+         memory: 2Gi
+     securityContext:
+       privileged: true
+   - name: build-image
+     image: quay.io/buildah/stable
+     workingDir: "/workspace/source/${inputs.params.contextDir}"
+     command:
+      - buildah
+      - bud
+      - --tls-verify=false
+      - --layers
+      - -t
+      - "${inputs.params.destinationImage}"
+      - -f
+      - "${inputs.params.dockerFile}"
+      - .
+     resources:
+       limits:
+         cpu: 4
+         memory: 4Gi
+       requests:
+         cpu: 2
+         memory: 2Gi
+     securityContext:
+       privileged: true
+     volumeMounts:
+     - name: varlibc
+       mountPath: /var/lib/containers
+   - name: build-push
+     image: quay.io/buildah/stable
+     workingDir: "/workspace/source/${inputs.params.contextDir}"
+     command:
+      - buildah
+      - push
+      - --tls-verify=false
+      - "${inputs.params.destinationImage}"
+      - "docker://${inputs.params.destinationImage}"
+     securityContext:
+       privileged: true
+     volumeMounts:
+     - name: varlibc
+       mountPath: /var/lib/containers
+  volumes:
+  - name: varlibc
+    emptyDir: {}</programlisting>
+</para>
+</formalpara>
+<calloutlist>
+<callout arearefs="CO3-1">
+<para>Name of the task, which will be used to refer to this task in other places such as task run, pipeline runs</para>
+</callout>
+<callout arearefs="CO3-2">
+<para>Each task has an optional input</para>
+</callout>
+<callout arearefs="CO3-3">
+<para>Input can have resources, typically the sources to build from. The task here defines a source of type to <literal>Git</literal> i.e. a GitHub source repository to clone sources</para>
+</callout>
+<callout arearefs="CO3-4">
+<para>Inputs can also have zero or more parameters that can be used in task steps</para>
+</callout>
+<callout arearefs="CO3-5">
+<para>Task can define an optional output, in our case this task will build a Java application container image from sources</para>
+</callout>
+<callout arearefs="CO3-6">
+<para>The steps actually define task&#8217;s steps. In our case we have three steps namely:</para>
+<itemizedlist>
+<listitem>
+<simpara><literal>build-sources</literal>: Runs a maven build to build the application sources</simpara>
+</listitem>
+<listitem>
+<simpara><literal>build-image</literal>: Runs a <link xl:href="https://buildah.io">buildah</link> build to build the application container image from built java application artifacts</simpara>
+</listitem>
+<listitem>
+<simpara><literal>build-image</literal>: Pushes the built container image to internal or external container registry</simpara>
+</listitem>
+</itemizedlist>
+</callout>
+</calloutlist>
+<simpara>The step follows the Kubernetes <link xl:href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.13/#pod-v1-core">pod specification</link> to define itself. This essentially means each step runs the command with in a <emphasis role="strong">container</emphasis>. The container image used in step container is called as <literal>builder image</literal>.</simpara>
+<simpara>All steps share a common directory called <literal>workspace</literal> that gets automatically mounted on all step containers of the task.</simpara>
+<simpara>The task parameters could be referred/interpolated within the step specificaiton using the <literal>${&lt;name&gt;}</literal>. notation.</simpara>
+</section>
+<section xml:id="_taskruns">
+<title>TaskRuns</title>
+<simpara><link xl:href="https://github.com/tektoncd/pipeline/blob/master/docs/taskruns.md">TaskRun</link> allows to run an individual task. The task run allows us to pass the inputs(sources,parameters) and ouput references to the task. The references are usually defined via pipeline resources.</simpara>
+<simpara>While defined the tasks we defined an  <link xl:href="https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task.yaml#L8">input</link>, <link xl:href="https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task.yaml#L25">output</link> and bunch of <link xl:href="https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task.yaml#L11-L22">parameters</link>. The names of these will act as an handle for us to pass the inputs/ouputs to the task from task run.</simpara>
+<simpara>Lets see how we do it in the demo,</simpara>
+<formalpara>
+<title><link xl:href="https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-build-task-run.yaml">Java build app task run</link></title>
+<para>
+<programlisting language="yaml" linenumbering="numbered">apiVersion: tekton.dev/v1alpha1
+kind: TaskRun
+metadata:
+  generateName: build-app- <co xml:id="CO4-1"/>
+spec:
+  serviceAccount: pipeline
+  taskRef:
+    name:  build-app <co xml:id="CO4-2"/>
+  inputs:
+   resources:
+    - name: source <co xml:id="CO4-3"/>
+      resourceRef:
+        name: git-source
+   params:
+    - name: contextDir <co xml:id="CO4-4"/>
+      value: app
+    # Enable if you have maven mirrors to use
+    # - name: mavenMirrorUrl
+    #   value: http://nexus:8081/nexus/content/groups/public
+  outputs:
+   resources:
+    - name: builtImage <co xml:id="CO4-5"/>
+      resourceRef:
+        name: helloworld-image</programlisting>
+</para>
+</formalpara>
+<calloutlist>
+<callout arearefs="CO4-1">
+<para>Since tasks can be run many times, its ideal to have unique names for each run. In his case each task run will have a name <literal>build-app-&lt;uuid&gt;</literal></para>
+</callout>
+<callout arearefs="CO4-2">
+<para><literal>taskRef</literal> is used to define the task that this task run will execute. In this case we use the task we defined earlier <literal>build-app</literal></para>
+</callout>
+<callout arearefs="CO4-3">
+<para>Using the inputs &#8594; resources, we link the task input resource named <literal>source</literal> with pipeline resource named <literal>git-source</literal></para>
+</callout>
+<callout arearefs="CO4-4">
+<para>Set the task parameter named <literal>contextDir</literal></para>
+</callout>
+<callout arearefs="CO4-5">
+<para>Using the outputs &#8594; resources, we link the task output resource named <literal>builtImage</literal> with pipeline resource named <literal>helloworld-image</literal></para>
+</callout>
+</calloutlist>
+</section>
+</section>
+<section xml:id="_deploy_demo">
+<title>Deploy Demo</title>
+<simpara>Having defined all the required resources that is needed to build the Java application, let us build and deploy the application on to Kubernetes. Before we go further its assumed that <link linkend="install">pipelines installation</link> was done successfully.</simpara>
+<informalfigure>
+<mediaobject>
+<imageobject>
+<imagedata fileref="task_run_overview.png"/>
+</imageobject>
+<textobject><phrase>task run overview</phrase></textobject>
+</mediaobject>
+</informalfigure>
+<section xml:id="_create_a_service_account_with_cluster_admin_privileges">
+<title>Create a Service Account with cluster-admin privileges</title>
+<programlisting language="bash" linenumbering="numbered">cd $DEMO_HOME &amp;&amp;\
+kubectl create sa pipeline &amp;&amp; \
+kubectl create clusterrolebinding pipeline-cluster-admin-binding --clusterrole=cluster-admin --serviceaccount=default:pipeline</programlisting>
+</section>
+<section xml:id="_create_pipeline_resources">
+<title>Create Pipeline Resources</title>
+<programlisting language="bash" linenumbering="numbered">kubectl create -f build-resources.yaml</programlisting>
+<simpara>Since we have installed Tekton cli, we can verify the created resources using the command:</simpara>
+<programlisting language="bash" linenumbering="numbered">tkn resources ls</programlisting>
+<tip>
+<simpara>You can also the short-name for the resources <literal>res</literal> e.g <literal>tkn res ls</literal></simpara>
+</tip>
+<simpara>The command above will return a list like</simpara>
+<programlisting language="bash" linenumbering="numbered">NAME               TYPE    DETAILS
+git-source         git     url: https://github.com/kameshsampath/pipeline-helloworld
+helloworld-image   image   url: dev.local/example/helloworld</programlisting>
+</section>
+<section xml:id="_create_the_build_application_task">
+<title>Create the build application task</title>
+<programlisting language="bash" linenumbering="numbered">kubectl create -f app-build-task.yaml</programlisting>
+<simpara>We can verify the created task using the command:</simpara>
+<programlisting language="bash" linenumbering="numbered">tkn task ls</programlisting>
+<simpara>The task list will show output like:</simpara>
+<programlisting language="bash" linenumbering="numbered">NAME        AGE
+build-app   2 hours ago</programlisting>
+</section>
+<section xml:id="_trigger_task_run">
+<title>Trigger Task Run</title>
+<programlisting language="bash" linenumbering="numbered">kubectl create -f app-build-task-run.yaml</programlisting>
+<simpara>We can verify the created taskrun using the command:</simpara>
+<programlisting language="bash" linenumbering="numbered">tkn taskrun ls</programlisting>
+<tip>
+<simpara>You can also the short-name for the taskrun <literal>res</literal> e.g <literal>tkn res tr</literal></simpara>
+</tip>
+<simpara>The task list will show output like:</simpara>
+<programlisting language="bash" linenumbering="numbered">NAME              STARTED       DURATION    STATUS
+build-app-q2njj   2 hours ago   4 minutes   Succeeded</programlisting>
+<note>
+<simpara>Initially the task will take sometime as it may need to download all the images. The status above could be like <literal>---</literal> or <literal>Pending</literal> or <literal>Running</literal>. If something not done correctly it could be <literal>Failed</literal></simpara>
+<simpara>When a taskrun is failed you can use the command <literal>kubectl describe taskrun &lt;taskrun-name&gt;</literal> to see the reason of failure</simpara>
+</note>
+</section>
+<section xml:id="_test_built_application">
+<title>Test built application</title>
+<simpara>Once the task run is successful we can do a quick test deploying the application to Kubernetes,</simpara>
+<programlisting language="bash" linenumbering="numbered">kubectl run helloworld --image=dev.local/example/helloworld --generator=deployment/apps.v1 <co xml:id="CO5-1"/>
+kubectl expose deployment helloworld --port=8080 --target-port=8080 --type='NodePort' <co xml:id="CO5-2"/></programlisting>
+<calloutlist>
+<callout arearefs="CO5-1">
+<para>Create a Kubernetes deployment of the built Java application</para>
+</callout>
+<callout arearefs="CO5-2">
+<para>Expose the deployment as a service</para>
+</callout>
+</calloutlist>
+<simpara>If you are using minikube then you can acess the service using the command <literal>curl "$(minikube service helloworld --url)/hello"</literal></simpara>
+<simpara>That&#8217;s it! You have now understood the basics of Tekton and how to build and deploy your Java application onto Kubernetes or OpenShift.</simpara>
+<simpara>You can also watch the end to end demo deployment on <link xl:href="https://youtu.be/q5P2V_YShjA">YouTube</link>.</simpara>
+</section>
+</section>
+</article>
