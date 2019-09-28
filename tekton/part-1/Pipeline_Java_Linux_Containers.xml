@@ -3,8 +3,8 @@
 <?asciidoc-numbered?>
 <article xmlns="http://docbook.org/ns/docbook" xmlns:xl="http://www.w3.org/1999/xlink" version="5.0" xml:lang="en">
 <info>
-<title>Building Cloud Native Java Applications with Tekton - Part I</title>
-<date>2019-09-17</date>
+<title>Building Cloud Native Java Applications with Tekton</title>
+<date>2019-09-28</date>
 </info>
 <simpara>Historically Java was able to handle the biggest enterprise problem(s) with its Write once,run anywhere(WORA) paradigm. With Cloud Native Applications grown to popularity, things like running applications as linux containers, serverless taking centre stage&#8201;&#8212;&#8201;Java was pushed back by languages like golang, node.js as the forerunner to build Cloud Native Applications as they are smaller, quicker and arguably more nimble.</simpara>
 <simpara>When analyzing what could be the possible reasons why developers were reluctant in building Kubernetes(Cloud) Native Java applications, I ended up the with the following possible reasons:</simpara>
@@ -368,18 +368,19 @@ build-app   2 hours ago</programlisting>
 <simpara>We can verify the created taskrun using the command:</simpara>
 <programlisting language="bash" linenumbering="numbered">tkn taskrun ls</programlisting>
 <tip>
-<simpara>You can also the short-name for the taskrun <literal>res</literal> e.g <literal>tkn res tr</literal></simpara>
+<simpara>You can also the short-name for the taskrun <literal>tr</literal> e.g <literal>tkn tr ls</literal></simpara>
 </tip>
 <simpara>The task list will show output like:</simpara>
 <programlisting language="bash" linenumbering="numbered">NAME              STARTED       DURATION    STATUS
 build-app-q2njj   2 hours ago   4 minutes   Succeeded</programlisting>
 <note>
 <simpara>Initially the task will take sometime as it may need to download all the images. The status above could be like <literal>---</literal> or <literal>Pending</literal> or <literal>Running</literal>. If something not done correctly it could be <literal>Failed</literal></simpara>
-<simpara>When a taskrun is failed you can use the command <literal>kubectl describe taskrun &lt;taskrun-name&gt;</literal> to see the reason of failure</simpara>
+<simpara>When a task run is failed you can use the command <literal>kubectl describe taskrun &lt;taskrun-name&gt;</literal> to see the reason of failure</simpara>
+<simpara>You can check the logs of the task run using the command:</simpara>
+<programlisting language="bash" linenumbering="unnumbered">tkn tr logs -f -a &lt;taskrun-name&gt;</programlisting>
 </note>
-</section>
-<section xml:id="_test_built_application">
-<title>Test built application</title>
+<simpara>[[#test-demo-app]]
+=== Test built application</simpara>
 <simpara>Once the task run is successful we can do a quick test deploying the application to Kubernetes,</simpara>
 <programlisting language="bash" linenumbering="numbered">kubectl run helloworld --image=dev.local/example/helloworld --generator=deployment/apps.v1 <co xml:id="CO5-1"/>
 kubectl expose deployment helloworld --port=8080 --target-port=8080 --type='NodePort' <co xml:id="CO5-2"/></programlisting>
@@ -391,9 +392,161 @@ kubectl expose deployment helloworld --port=8080 --target-port=8080 --type='Node
 <para>Expose the deployment as a service</para>
 </callout>
 </calloutlist>
-<simpara>If you are using minikube then you can acess the service using the command <literal>curl "$(minikube service helloworld --url)/hello"</literal></simpara>
-<simpara>That&#8217;s it! You have now understood the basics of Tekton and how to build and deploy your Java application onto Kubernetes or OpenShift.</simpara>
-<simpara>You can also watch the end to end demo deployment on <link xl:href="https://youtu.be/q5P2V_YShjA">YouTube</link>.</simpara>
+<simpara>If you are using minikube then you can access the service using the command <literal>curl "$(minikube service helloworld --url)/hello"</literal></simpara>
 </section>
+</section>
+<section xml:id="_pipelines">
+<title>Pipelines</title>
+<simpara>Task as very fundamental units of CI/CD, all we have seen until now is how to create, build and test your task(s). But task as themselves are not so interesting combining few tasks together.</simpara>
+<simpara>In the example above we had task to build and create linux container of Java application, but we have to manually deploy the application on to Kubernetes. Will that not be nice if we can have task that can do that manual deployment as well ?</simpara>
+<simpara>Exactly thats what "Pipelines" is used for. Pipelines allows you define a set of tasks to be executed in a defined order; with data flowing from one task to another seamlessly.</simpara>
+<simpara>One of the biggest drawbacks of few existing and popular CI/CD tools is that they don&#8217;t capabilities to extend and reuse tasks. But Tekton has built with the capability of of reuse; where you can use tasks from community and other places via <link xl:href="https://github.com/tektoncd/catalog">catalog</link>.</simpara>
+<simpara>Before we build and run our first pipeline lets create a simple task that can deploy our application. In this example we will be using <link xl:href="https://openshift.com">OpenShift</link> cli to deploy the Java application into Kubernetes.</simpara>
+<section xml:id="_create_kubernetes_deploy_task">
+<title>Create Kubernetes deploy task</title>
+<formalpara>
+<title><link xl:href="https://github.com/kameshsampath/pipeline-helloworld/blob/master/openshift-client-task.yaml">OpenShift client task</link></title>
+<para>
+<programlisting language="yaml" linenumbering="unnumbered">apiVersion: tekton.dev/v1alpha1
+kind: Task
+metadata:
+  name: openshift-client
+spec:
+  inputs:
+    params:
+      - name: ARGS
+        description: The OpenShift CLI arguments to run
+        default: help
+  steps:
+    - name: oc
+      image: quay.io/openshift-pipeline/openshift-cli:latest
+      command: ["/usr/local/bin/oc"]
+      args:
+        - "${inputs.params.ARGS}"</programlisting>
+</para>
+</formalpara>
+<simpara>Lets create the pipeline by running the following command:</simpara>
+<programlisting language="yaml" linenumbering="unnumbered">kubectl create -f openshift-client-task.yaml</programlisting>
+<simpara>Verify the created task via the command <literal>tkn task ls</literal>.</simpara>
+</section>
+<section xml:id="_create_pipeline_using_build_and_deploy_tasks">
+<title>Create Pipeline using build and deploy tasks</title>
+<simpara>The pipelines follow pretty much the same structure as Task, except that pipelines has collection of tasks instead of steps.</simpara>
+<formalpara>
+<title><link xl:href="https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-deploy.yaml">Deploy Java application pipeline</link></title>
+<para>
+<programlisting language="yaml" linenumbering="unnumbered">apiVersion: tekton.dev/v1alpha1
+kind: Pipeline
+metadata:
+  name: app-deploy
+spec:
+  resources: <co xml:id="CO6-1"/>
+  - name: app-source
+    type: git
+  - name: app-image
+    type: image
+  tasks: <co xml:id="CO6-2"/>
+   - name: build-java
+     taskRef:
+       name: build-app
+     params:
+      - name: contextDir
+        value: app
+     resources:
+      inputs:
+       - name: source
+         resource: app-source
+      outputs:
+       - name: builtImage
+         resource: app-image
+   - name: deploy-app
+     taskRef:
+       name: openshift-client
+     runAfter: <co xml:id="CO6-3"/>
+      - build-java
+     params:
+      - name: ARGS
+        value: "run --image=dev.local/example/helloworld --image-pull-policy=Never --generator=deployment/apps.v1 helloworld" <co xml:id="CO6-4"/></programlisting>
+</para>
+</formalpara>
+<calloutlist>
+<callout arearefs="CO6-1">
+<para>Like Task pipeline can also define parameters and resources.</para>
+</callout>
+<callout arearefs="CO6-2">
+<para>The list of tasks that need to run as part of the pipeline</para>
+</callout>
+<callout arearefs="CO6-3">
+<para>The pipeline tasks can be order when to run, in this case we make the rask to run only after build-java task is completed</para>
+</callout>
+<callout arearefs="CO6-4">
+<para>Deploying the built java linux container image using the same commands and options which we used in manual mode. In this case the command is provided via <literal>openshift-client</literal> task and all we need is to pass the command options and parameters</para>
+</callout>
+</calloutlist>
+</section>
+<section xml:id="_create_the_deploy_application_pipeline">
+<title>Create the deploy application pipeline</title>
+<programlisting language="bash" linenumbering="numbered">kubectl create -f app-deploy.yaml</programlisting>
+<simpara>We can verify the created pipeline using the command:</simpara>
+<programlisting language="bash" linenumbering="numbered">tkn pipeline ls</programlisting>
+<simpara>The pipeline list will show output like:</simpara>
+<programlisting language="bash" linenumbering="numbered">NAME        AGE
+app-deploy   2 hours ago</programlisting>
+</section>
+</section>
+<section xml:id="_trigger_pipeline_run">
+<title>Trigger pipeline run</title>
+<simpara>With that we are all set to trigger the pipeline. Instead of creating an YAML, lets use the Tekton CLI to trigger the pipeline run:</simpara>
+<informalfigure>
+<mediaobject>
+<imageobject>
+<imagedata fileref="pipeline_run_overview.png"/>
+</imageobject>
+<textobject><phrase>pipeline run overview</phrase></textobject>
+</mediaobject>
+</informalfigure>
+<programlisting language="bash" linenumbering="numbered">tkn pipeline start   --resource="app-source=git-source" --resource="app-image=helloworld-image" --serviceaccount='pipeline' app-deploy</programlisting>
+<simpara>Pipeline <literal>start</literal> starts a new pipeline run and we can associate the pipeline run with pipeline resources via the option <literal>--resource</literal></simpara>
+<tip>
+<simpara>You can run <literal>tkn pipeline start --help</literal> to see more options</simpara>
+</tip>
+<simpara>We can verify the created pipeline run using the command:</simpara>
+<programlisting language="bash" linenumbering="numbered">tkn pipelinerun ls</programlisting>
+<tip>
+<simpara>You can also the short-name for the pipeline run <literal>pr</literal> e.g <literal>tkn pr ls</literal></simpara>
+</tip>
+<simpara>The task list will show output like:</simpara>
+<programlisting language="bash" linenumbering="numbered">NAME              STARTED       DURATION    STATUS
+app-deploy-k2nsy   2 hours ago   4 minutes   Succeeded</programlisting>
+<note>
+<simpara>Initially the pipeline will take sometime as it may need to download all the images. The status above could be like <literal>---</literal> or <literal>Pending</literal> or <literal>Running</literal>. If something not done correctly it could be <literal>Failed</literal></simpara>
+<simpara>When a pipelinerun is failed you can use the command <literal>kubectl describe pipelinerun &lt;pipelinerun-name&gt;</literal> to see the reason of failure.</simpara>
+<simpara>You can check the logs of the pipeline run using the command:</simpara>
+<programlisting language="bash" linenumbering="unnumbered">tkn pr logs -f -a &lt;pipelinerun-name&gt;</programlisting>
+</note>
+<simpara>Once the build is successful and if you are using minikube then you can access the service using the command <literal>curl "$(minikube service helloworld --url)/hello"</literal></simpara>
+<simpara>Thats it! I hope you have understood the basics of how to build and deploy your Java application on to Kubernetes using Tekton pipelines.</simpara>
+</section>
+<section xml:id="_resources_and_references">
+<title>Resources and References</title>
+<itemizedlist>
+<listitem>
+<simpara>Demo video <link xl:href="https://youtu.be/q5P2V_YShjA">YouTube</link></simpara>
+</listitem>
+<listitem>
+<simpara>Tekton community catalogs</simpara>
+<itemizedlist>
+<listitem>
+<simpara><link xl:href="https://github.com/tektoncd/catalog">Tekton Pipelines Catalog</link></simpara>
+</listitem>
+<listitem>
+<simpara><link xl:href="https://github.com/redhat-developer-demos/pipelines-catalog">Red Hat Developers Pipelines Catalog</link></simpara>
+</listitem>
+<listitem>
+<simpara><link xl:href="https://github.com/openshift/pipelines-catalog">OpenShift Pipelines Catalog</link></simpara>
+</listitem>
+</itemizedlist>
+</listitem>
+</itemizedlist>
 </section>
 </article>

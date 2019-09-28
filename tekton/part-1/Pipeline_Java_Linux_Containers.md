@@ -1,4 +1,4 @@
-# Building Cloud Native Java Applications with Tekton - Part I
+# Building Cloud Native Java Applications with Tekton
 
 Historically Java was able to handle the biggest enterprise problem(s)
 with its Write once,run anywhere(WORA) paradigm. With Cloud Native
@@ -435,7 +435,7 @@ We can verify the created taskrun using the command:
 
 > **Tip**
 >
-> You can also the short-name for the taskrun `res` e.g `tkn res tr`
+> You can also the short-name for the taskrun `tr` e.g `tkn tr ls`
 
 The task list will show output like:
 
@@ -448,11 +448,14 @@ The task list will show output like:
 > the images. The status above could be like `---` or `Pending` or
 > `Running`. If something not done correctly it could be `Failed`
 >
-> When a taskrun is failed you can use the command
+> When a task run is failed you can use the command
 > `kubectl describe taskrun <taskrun-name>` to see the reason of failure
+>
+> You can check the logs of the task run using the command:
+>
+>     tkn tr logs -f -a <taskrun-name>
 
-Test built application
-----------------------
+\[\[\#test-demo-app\]\] === Test built application
 
 Once the task run is successful we can do a quick test deploying the
 application to Kubernetes,
@@ -464,11 +467,195 @@ application to Kubernetes,
 
 -   Expose the deployment as a service
 
-If you are using minikube then you can acess the service using the
+If you are using minikube then you can access the service using the
 command `curl "$(minikube service helloworld --url)/hello"`
 
-That’s it! You have now understood the basics of Tekton and how to build
-and deploy your Java application onto Kubernetes or OpenShift.
+Pipelines
+=========
 
-You can also watch the end to end demo deployment on
-[YouTube](https://youtu.be/q5P2V_YShjA).
+Task as very fundamental units of CI/CD, all we have seen until now is
+how to create, build and test your task(s). But task as themselves are
+not so interesting combining few tasks together.
+
+In the example above we had task to build and create linux container of
+Java application, but we have to manually deploy the application on to
+Kubernetes. Will that not be nice if we can have task that can do that
+manual deployment as well ?
+
+Exactly thats what "Pipelines" is used for. Pipelines allows you define
+a set of tasks to be executed in a defined order; with data flowing from
+one task to another seamlessly.
+
+One of the biggest drawbacks of few existing and popular CI/CD tools is
+that they don’t capabilities to extend and reuse tasks. But Tekton has
+built with the capability of of reuse; where you can use tasks from
+community and other places via
+[catalog](https://github.com/tektoncd/catalog).
+
+Before we build and run our first pipeline lets create a simple task
+that can deploy our application. In this example we will be using
+[OpenShift](https://openshift.com) cli to deploy the Java application
+into Kubernetes.
+
+Create Kubernetes deploy task
+-----------------------------
+
+**[OpenShift client
+task](https://github.com/kameshsampath/pipeline-helloworld/blob/master/openshift-client-task.yaml).**
+
+    apiVersion: tekton.dev/v1alpha1
+    kind: Task
+    metadata:
+      name: openshift-client
+    spec:
+      inputs:
+        params:
+          - name: ARGS
+            description: The OpenShift CLI arguments to run
+            default: help
+      steps:
+        - name: oc
+          image: quay.io/openshift-pipeline/openshift-cli:latest
+          command: ["/usr/local/bin/oc"]
+          args:
+            - "${inputs.params.ARGS}"
+
+Lets create the pipeline by running the following command:
+
+    kubectl create -f openshift-client-task.yaml
+
+Verify the created task via the command `tkn task ls`.
+
+Create Pipeline using build and deploy tasks
+--------------------------------------------
+
+The pipelines follow pretty much the same structure as Task, except that
+pipelines has collection of tasks instead of steps.
+
+**[Deploy Java application
+pipeline](https://github.com/kameshsampath/pipeline-helloworld/blob/master/app-deploy.yaml).**
+
+    apiVersion: tekton.dev/v1alpha1
+    kind: Pipeline
+    metadata:
+      name: app-deploy
+    spec:
+      resources: 
+      - name: app-source
+        type: git
+      - name: app-image
+        type: image
+      tasks: 
+       - name: build-java
+         taskRef:
+           name: build-app
+         params:
+          - name: contextDir
+            value: app
+         resources:
+          inputs:
+           - name: source
+             resource: app-source
+          outputs:
+           - name: builtImage
+             resource: app-image
+       - name: deploy-app
+         taskRef:
+           name: openshift-client
+         runAfter: 
+          - build-java
+         params:
+          - name: ARGS
+            value: "run --image=dev.local/example/helloworld --image-pull-policy=Never --generator=deployment/apps.v1 helloworld" 
+
+-   Like Task pipeline can also define parameters and resources.
+
+-   The list of tasks that need to run as part of the pipeline
+
+-   The pipeline tasks can be order when to run, in this case we make
+    the rask to run only after build-java task is completed
+
+-   Deploying the built java linux container image using the same
+    commands and options which we used in manual mode. In this case the
+    command is provided via `openshift-client` task and all we need is
+    to pass the command options and parameters
+
+Create the deploy application pipeline
+--------------------------------------
+
+    kubectl create -f app-deploy.yaml
+
+We can verify the created pipeline using the command:
+
+    tkn pipeline ls
+
+The pipeline list will show output like:
+
+    NAME        AGE
+    app-deploy   2 hours ago
+
+Trigger pipeline run
+====================
+
+With that we are all set to trigger the pipeline. Instead of creating an
+YAML, lets use the Tekton CLI to trigger the pipeline run:
+
+![pipeline run overview](pipeline_run_overview.png)
+
+    tkn pipeline start   --resource="app-source=git-source" --resource="app-image=helloworld-image" --serviceaccount='pipeline' app-deploy
+
+Pipeline `start` starts a new pipeline run and we can associate the
+pipeline run with pipeline resources via the option `--resource`
+
+> **Tip**
+>
+> You can run `tkn pipeline start --help` to see more options
+
+We can verify the created pipeline run using the command:
+
+    tkn pipelinerun ls
+
+> **Tip**
+>
+> You can also the short-name for the pipeline run `pr` e.g `tkn pr ls`
+
+The task list will show output like:
+
+    NAME              STARTED       DURATION    STATUS
+    app-deploy-k2nsy   2 hours ago   4 minutes   Succeeded
+
+> **Note**
+>
+> Initially the pipeline will take sometime as it may need to download
+> all the images. The status above could be like `---` or `Pending` or
+> `Running`. If something not done correctly it could be `Failed`
+>
+> When a pipelinerun is failed you can use the command
+> `kubectl describe pipelinerun <pipelinerun-name>` to see the reason of
+> failure.
+>
+> You can check the logs of the pipeline run using the command:
+>
+>     tkn pr logs -f -a <pipelinerun-name>
+
+Once the build is successful and if you are using minikube then you can
+access the service using the command
+`curl "$(minikube service helloworld --url)/hello"`
+
+Thats it! I hope you have understood the basics of how to build and
+deploy your Java application on to Kubernetes using Tekton pipelines.
+
+Resources and References
+========================
+
+-   Demo video [YouTube](https://youtu.be/q5P2V_YShjA)
+
+-   Tekton community catalogs
+
+    -   [Tekton Pipelines Catalog](https://github.com/tektoncd/catalog)
+
+    -   [Red Hat Developers Pipelines
+        Catalog](https://github.com/redhat-developer-demos/pipelines-catalog)
+
+    -   [OpenShift Pipelines
+        Catalog](https://github.com/openshift/pipelines-catalog)
